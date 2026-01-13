@@ -1,0 +1,7 @@
+{
+  "name": "El Arquitecto Musical",
+  "description": "Herramienta profesional de análisis musical para conservatorios que permite mapear la estructura de obras sobre la forma de onda.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
