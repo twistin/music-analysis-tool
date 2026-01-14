@@ -1,13 +1,32 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.js';
-import { Play, Pause, Download, Trash2, Info, ArrowLeft, Music, FileAudio, ChevronDown, ChevronRight, BookOpen, Headphones, ClipboardCheck, Bot } from 'lucide-react';
+import * as musicMetadata from 'music-metadata';
+import { Play, Pause, Download, Trash2, Info, ArrowLeft, Music, FileAudio, ChevronDown, ChevronRight, BookOpen, Headphones, ClipboardCheck, Bot, Disc3, User, Calendar, Album, FileMusic, Upload, Library } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ANALYSIS_SECTIONS, SECTION_CATEGORIES, getCategoriesForTopic } from '../../constants';
 import { MusicalSection } from '../../types';
 import TheoryContent from './TheoryContent';
 import Quiz from './Quiz';
 import AiTutor from './AiTutor';
+import { getSheetMusicForTopic } from '../data/sheetMusic';
+import AnnotatedScoreViewer, { AnnotatedScoreViewerRef } from './AnnotatedScoreViewer';
+import CorpusExplorer from './CorpusExplorer';
+import { WorkInfo, AnalysisResult } from '../services/music21Api';
+
+// Interface for audio metadata
+interface AudioMetadata {
+    title?: string;
+    artist?: string;
+    album?: string;
+    year?: number;
+    genre?: string[];
+    duration?: number;
+    bitrate?: number;
+    sampleRate?: number;
+    format?: string;
+    cover?: string; // base64 encoded
+}
 
 const AnalysisStudio: React.FC = () => {
     const navigate = useNavigate();
@@ -24,6 +43,39 @@ const AnalysisStudio: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
     const [activeTab, setActiveTab] = useState<'analysis' | 'theory' | 'quiz' | 'tutor'>('theory');
+    const [audioMetadata, setAudioMetadata] = useState<AudioMetadata | null>(null);
+    const [fileName, setFileName] = useState<string>('');
+    const [isLoadingMetadata, setIsLoadingMetadata] = useState(false);
+    
+    // Score viewer state
+    const scoreViewerRef = useRef<AnnotatedScoreViewerRef>(null);
+    const [uploadedScoreUrl, setUploadedScoreUrl] = useState<string | null>(null);
+    const [uploadedScoreContent, setUploadedScoreContent] = useState<string | null>(null);
+    const [scoreFileName, setScoreFileName] = useState<string>('');
+    
+    // Corpus explorer state
+    const [showCorpusExplorer, setShowCorpusExplorer] = useState(false);
+    const [selectedCorpusWork, setSelectedCorpusWork] = useState<WorkInfo | null>(null);
+    const [corpusAnalysis, setCorpusAnalysis] = useState<AnalysisResult | null>(null);
+
+    // Handle work selection from corpus
+    const handleCorpusWorkSelect = useCallback((musicXmlContent: string, workInfo: WorkInfo) => {
+        setUploadedScoreContent(musicXmlContent);
+        setUploadedScoreUrl(null);
+        setScoreFileName(workInfo.title);
+        setSelectedCorpusWork(workInfo);
+        setShowCorpusExplorer(false); // Close explorer after selection
+    }, []);
+
+    const handleCorpusAnalysis = useCallback((analysis: AnalysisResult) => {
+        setCorpusAnalysis(analysis);
+    }, []);
+
+    // Get sheet music info for current topic
+    const topicSheetMusic = useMemo(() => {
+        if (!topicId) return null;
+        return getSheetMusicForTopic(topicId);
+    }, [topicId]);
 
     // Get relevant categories for current topic
     const relevantCategories = useMemo(() => {
@@ -115,11 +167,77 @@ const AnalysisStudio: React.FC = () => {
         wavesurfer.current?.playPause();
     }, []);
 
-    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             const url = URL.createObjectURL(file);
             setAudioUrl(url);
+            setFileName(file.name);
+            setIsLoadingMetadata(true);
+            setAudioMetadata(null);
+
+            try {
+                // Parse audio metadata using music-metadata
+                const metadata = await musicMetadata.parseBlob(file);
+                
+                // Extract cover art if available
+                let coverBase64: string | undefined;
+                if (metadata.common.picture && metadata.common.picture.length > 0) {
+                    const picture = metadata.common.picture[0];
+                    const base64 = btoa(
+                        new Uint8Array(picture.data).reduce(
+                            (data, byte) => data + String.fromCharCode(byte),
+                            ''
+                        )
+                    );
+                    coverBase64 = `data:${picture.format};base64,${base64}`;
+                }
+
+                setAudioMetadata({
+                    title: metadata.common.title,
+                    artist: metadata.common.artist,
+                    album: metadata.common.album,
+                    year: metadata.common.year,
+                    genre: metadata.common.genre,
+                    duration: metadata.format.duration,
+                    bitrate: metadata.format.bitrate,
+                    sampleRate: metadata.format.sampleRate,
+                    format: metadata.format.container,
+                    cover: coverBase64,
+                });
+            } catch (err) {
+                console.warn('Could not parse audio metadata:', err);
+                // Still continue - just won't have metadata
+            } finally {
+                setIsLoadingMetadata(false);
+            }
+        }
+    };
+
+    // Handle MusicXML score upload
+    const handleScoreUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setScoreFileName(file.name);
+        
+        // Check file extension
+        const extension = file.name.split('.').pop()?.toLowerCase();
+        
+        if (extension === 'musicxml' || extension === 'xml' || extension === 'mxl') {
+            // Read as text for MusicXML files
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const content = event.target?.result as string;
+                setUploadedScoreContent(content);
+                setUploadedScoreUrl(null);
+            };
+            reader.readAsText(file);
+        } else {
+            // For other files, try to load as URL
+            const url = URL.createObjectURL(file);
+            setUploadedScoreUrl(url);
+            setUploadedScoreContent(null);
         }
     };
 
@@ -379,6 +497,191 @@ const AnalysisStudio: React.FC = () => {
                                     <span className="text-xs">Arrastra y redimensiona las regiones creadas</span>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Audio Info Panel - Shows metadata from uploaded file */}
+                        {audioUrl && (
+                            <div className="bg-gradient-to-r from-slate-800 to-slate-800/50 rounded-xl border border-slate-700 p-5 shadow-lg">
+                                <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                                    <Disc3 size={16} className="text-blue-400" />
+                                    Información del Audio
+                                </h3>
+                                
+                                <div className="flex gap-5">
+                                    {/* Cover Art or Placeholder */}
+                                    <div className="shrink-0">
+                                        {audioMetadata?.cover ? (
+                                            <img 
+                                                src={audioMetadata.cover} 
+                                                alt="Cover art" 
+                                                className="w-24 h-24 rounded-lg object-cover shadow-lg border border-slate-600"
+                                            />
+                                        ) : (
+                                            <div className="w-24 h-24 rounded-lg bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center border border-slate-600">
+                                                <Music size={32} className="text-slate-500" />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Metadata Details */}
+                                    <div className="flex-1 min-w-0">
+                                        {isLoadingMetadata ? (
+                                            <div className="flex items-center gap-2 text-slate-400">
+                                                <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                                                <span className="text-sm">Leyendo metadatos...</span>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {/* Title */}
+                                                <h4 className="text-lg font-bold text-white truncate mb-1">
+                                                    {audioMetadata?.title || fileName || 'Archivo de audio'}
+                                                </h4>
+
+                                                {/* Artist and Album */}
+                                                <div className="space-y-1 mb-3">
+                                                    {audioMetadata?.artist && (
+                                                        <div className="flex items-center gap-2 text-sm text-slate-300">
+                                                            <User size={14} className="text-slate-500" />
+                                                            <span>{audioMetadata.artist}</span>
+                                                        </div>
+                                                    )}
+                                                    {audioMetadata?.album && (
+                                                        <div className="flex items-center gap-2 text-sm text-slate-400">
+                                                            <Album size={14} className="text-slate-500" />
+                                                            <span>{audioMetadata.album}</span>
+                                                            {audioMetadata?.year && (
+                                                                <span className="text-slate-500">({audioMetadata.year})</span>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    {audioMetadata?.genre && audioMetadata.genre.length > 0 && (
+                                                        <div className="flex items-center gap-2 text-sm text-slate-400">
+                                                            <span className="px-2 py-0.5 bg-slate-700 rounded text-xs">
+                                                                {audioMetadata.genre.join(', ')}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Technical Info */}
+                                                <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+                                                    {audioMetadata?.format && (
+                                                        <span className="px-2 py-1 bg-slate-700/50 rounded">
+                                                            {audioMetadata.format.toUpperCase()}
+                                                        </span>
+                                                    )}
+                                                    {audioMetadata?.bitrate && (
+                                                        <span className="px-2 py-1 bg-slate-700/50 rounded">
+                                                            {Math.round(audioMetadata.bitrate / 1000)} kbps
+                                                        </span>
+                                                    )}
+                                                    {audioMetadata?.sampleRate && (
+                                                        <span className="px-2 py-1 bg-slate-700/50 rounded">
+                                                            {(audioMetadata.sampleRate / 1000).toFixed(1)} kHz
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {/* Show topic info if no metadata available */}
+                                                {!audioMetadata?.title && !audioMetadata?.artist && topicSheetMusic && (
+                                                    <div className="mt-2 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                                                        <p className="text-xs text-blue-300 mb-1">Obra sugerida para este tema:</p>
+                                                        <p className="text-sm text-white font-medium">{topicSheetMusic.title}</p>
+                                                        <p className="text-xs text-slate-400">{topicSheetMusic.composer} — {topicSheetMusic.description}</p>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Sheet Music Section */}
+                        <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
+                                <div className="flex items-center gap-2">
+                                    <FileMusic size={18} className="text-purple-400" />
+                                    <span className="font-medium text-white">Partitura</span>
+                                    {scoreFileName && (
+                                        <span className="text-xs text-slate-400 ml-2">
+                                            ({scoreFileName})
+                                        </span>
+                                    )}
+                                    {selectedCorpusWork && (
+                                        <span className="text-xs text-emerald-400 ml-1">
+                                            • Corpus
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => setShowCorpusExplorer(!showCorpusExplorer)}
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                                            showCorpusExplorer 
+                                                ? 'bg-emerald-500 text-white' 
+                                                : 'bg-emerald-600/20 text-emerald-400 border border-emerald-600/50 hover:bg-emerald-600/30'
+                                        }`}
+                                    >
+                                        <Library size={16} />
+                                        <span>Corpus Music21</span>
+                                    </button>
+                                    <label className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-500 rounded-lg cursor-pointer transition-colors text-sm text-white">
+                                        <Upload size={16} />
+                                        <span>Subir</span>
+                                        <input 
+                                            type="file" 
+                                            className="hidden" 
+                                            accept=".musicxml,.xml,.mxl"
+                                            onChange={handleScoreUpload} 
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+
+                            {/* Corpus Explorer (collapsible) */}
+                            {showCorpusExplorer && (
+                                <div className="p-4 border-b border-slate-700 bg-slate-900/30">
+                                    <CorpusExplorer 
+                                        topicId={topicId}
+                                        onSelectWork={handleCorpusWorkSelect}
+                                        onAnalysisComplete={handleCorpusAnalysis}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Corpus Analysis Display */}
+                            {corpusAnalysis && !showCorpusExplorer && (
+                                <div className="px-4 py-2 bg-purple-500/10 border-b border-purple-500/30 flex items-center gap-4 text-sm">
+                                    <span className="text-purple-300 font-medium">Análisis:</span>
+                                    <span className="text-white">Tonalidad: {corpusAnalysis.key}</span>
+                                    <span className="text-slate-400">|</span>
+                                    <span className="text-white">Compás: {corpusAnalysis.time_signature}</span>
+                                    <span className="text-slate-400">|</span>
+                                    <span className="text-white">{corpusAnalysis.measure_count} compases</span>
+                                </div>
+                            )}
+
+                            {/* Score Viewer */}
+                            {(uploadedScoreContent || uploadedScoreUrl || topicSheetMusic) ? (
+                                <AnnotatedScoreViewer
+                                    ref={scoreViewerRef}
+                                    musicXmlUrl={uploadedScoreUrl || topicSheetMusic?.url}
+                                    musicXmlContent={uploadedScoreContent || undefined}
+                                    title={scoreFileName || topicSheetMusic?.title || 'Partitura'}
+                                    currentTime={currentTime}
+                                    duration={duration}
+                                    isPlaying={isPlaying}
+                                />
+                            ) : (
+                                <div className="p-8 text-center">
+                                    <FileMusic size={40} className="mx-auto mb-3 text-slate-600" />
+                                    <p className="text-slate-400 text-sm">No hay partitura cargada</p>
+                                    <p className="text-slate-500 text-xs mt-1">
+                                        Usa el <strong>Corpus Music21</strong> para buscar entre 2000+ obras o sube tu propio archivo
+                                    </p>
+                                </div>
+                            )}
                         </div>
 
                 {/* Analysis Toolbar - Now Categorized */}
