@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, Music, Clock, ChevronRight, GraduationCap } from 'lucide-react';
+import { BookOpen, Music, Clock, ChevronRight, GraduationCap, Headphones, Piano } from 'lucide-react';
 import { SYLLABUS } from '../data/syllabus';
 
 const Dashboard: React.FC = () => {
@@ -15,6 +15,14 @@ const Dashboard: React.FC = () => {
                 <p className="text-slate-400 text-lg">
                     Plataforma de Análisis Musical - Grado Profesional
                 </p>
+                <button
+                    onClick={() => navigate('/practice')}
+                    className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 rounded-lg text-white font-medium transition-all hover:scale-105"
+                >
+                    <Headphones size={20} />
+                    Sala de Práctica
+                    <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">Piano + Ear Training</span>
+                </button>
             </header>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

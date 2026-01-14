@@ -1,10 +1,13 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.js';
-import { Play, Pause, Download, Trash2, Info, ArrowLeft, Music, FileAudio } from 'lucide-react';
+import { Play, Pause, Download, Trash2, Info, ArrowLeft, Music, FileAudio, ChevronDown, ChevronRight, BookOpen, Headphones, ClipboardCheck, Bot } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ANALYSIS_SECTIONS } from '../../constants';
+import { ANALYSIS_SECTIONS, SECTION_CATEGORIES, getCategoriesForTopic } from '../../constants';
 import { MusicalSection } from '../../types';
+import TheoryContent from './TheoryContent';
+import Quiz from './Quiz';
+import AiTutor from './AiTutor';
 
 const AnalysisStudio: React.FC = () => {
     const navigate = useNavigate();
@@ -19,6 +22,31 @@ const AnalysisStudio: React.FC = () => {
     const [activeRegions, setActiveRegions] = useState<MusicalSection[]>([]);
     const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+    const [activeTab, setActiveTab] = useState<'analysis' | 'theory' | 'quiz' | 'tutor'>('theory');
+
+    // Get relevant categories for current topic
+    const relevantCategories = useMemo(() => {
+        if (!topicId) return Object.keys(SECTION_CATEGORIES);
+        return getCategoriesForTopic(topicId);
+    }, [topicId]);
+
+    // Initialize expanded categories based on topic
+    useEffect(() => {
+        setExpandedCategories(new Set(relevantCategories));
+    }, [relevantCategories]);
+
+    const toggleCategory = (categoryKey: string) => {
+        setExpandedCategories(prev => {
+            const next = new Set(prev);
+            if (next.has(categoryKey)) {
+                next.delete(categoryKey);
+            } else {
+                next.add(categoryKey);
+            }
+            return next;
+        });
+    };
 
     // Initialize WaveSurfer
     useEffect(() => {
@@ -133,8 +161,63 @@ const AnalysisStudio: React.FC = () => {
         return `${minutes}:${seconds.toString().padStart(2, '0')}`;
     };
 
+    // Render categorized analysis buttons
+    const renderCategorizedButtons = () => {
+        // Order categories: first relevant ones, then others
+        const orderedCategories = [
+            ...Object.entries(SECTION_CATEGORIES).filter(([key]) => relevantCategories.includes(key)),
+            ...Object.entries(SECTION_CATEGORIES).filter(([key]) => !relevantCategories.includes(key))
+        ];
+
+        return (
+            <div className="space-y-3">
+                {orderedCategories.map(([categoryKey, category]) => {
+                    const isRelevant = relevantCategories.includes(categoryKey);
+                    const isExpanded = expandedCategories.has(categoryKey);
+                    
+                    return (
+                        <div key={categoryKey} className={`rounded-lg overflow-hidden ${isRelevant ? 'bg-slate-800/50' : 'bg-slate-900/30'}`}>
+                            <button
+                                onClick={() => toggleCategory(categoryKey)}
+                                className={`w-full flex items-center justify-between px-4 py-2 text-left transition-colors ${
+                                    isRelevant ? 'hover:bg-slate-700/50' : 'hover:bg-slate-800/50 opacity-60'
+                                }`}
+                            >
+                                <span className={`font-medium ${isRelevant ? 'text-white' : 'text-slate-400'}`}>
+                                    {category.label}
+                                    {isRelevant && (
+                                        <span className="ml-2 text-xs text-emerald-400">• Recomendado</span>
+                                    )}
+                                </span>
+                                {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                            </button>
+                            
+                            {isExpanded && (
+                                <div className="px-4 pb-3 grid grid-cols-2 gap-2">
+                                    {category.keys.map((key) => {
+                                        const section = ANALYSIS_SECTIONS[key];
+                                        if (!section) return null;
+                                        return (
+                                            <button
+                                                key={key}
+                                                onClick={() => addAnalysisRegion(key)}
+                                                className={`py-2 px-3 rounded-md text-xs font-semibold transition-all transform hover:-translate-y-0.5 active:translate-y-0 shadow-sm ${section.tailwind}`}
+                                            >
+                                                {section.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
+
     return (
-        <div className="flex flex-col h-full space-y-6">
+        <div className="flex flex-col h-full space-y-6 p-6">
             {/* Header */}
             <header className="flex items-center justify-between gap-4 border-b border-slate-700 pb-6">
                 <div className="flex items-center gap-4">
@@ -170,71 +253,148 @@ const AnalysisStudio: React.FC = () => {
                 </div>
             </header>
 
-            {/* Main Analysis View */}
+            {/* Tab Navigation */}
+            <div className="flex gap-2 border-b border-slate-700 pb-0">
+                <button
+                    onClick={() => setActiveTab('theory')}
+                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                        activeTab === 'theory'
+                            ? 'text-blue-400 border-blue-400'
+                            : 'text-slate-400 border-transparent hover:text-slate-200'
+                    }`}
+                >
+                    <BookOpen size={18} />
+                    Contenido Teórico
+                </button>
+                <button
+                    onClick={() => setActiveTab('analysis')}
+                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                        activeTab === 'analysis'
+                            ? 'text-blue-400 border-blue-400'
+                            : 'text-slate-400 border-transparent hover:text-slate-200'
+                    }`}
+                >
+                    <Headphones size={18} />
+                    Estudio de Análisis
+                </button>
+                <button
+                    onClick={() => setActiveTab('quiz')}
+                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                        activeTab === 'quiz'
+                            ? 'text-blue-400 border-blue-400'
+                            : 'text-slate-400 border-transparent hover:text-slate-200'
+                    }`}
+                >
+                    <ClipboardCheck size={18} />
+                    Evaluación
+                </button>
+                <button
+                    onClick={() => setActiveTab('tutor')}
+                    className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                        activeTab === 'tutor'
+                            ? 'text-blue-400 border-blue-400'
+                            : 'text-slate-400 border-transparent hover:text-slate-200'
+                    }`}
+                >
+                    <Bot size={18} />
+                    Tutor IA
+                </button>
+            </div>
+
+            {/* Main Content Area */}
             <main className="flex-1 space-y-6 overflow-y-auto pr-2 custom-scrollbar">
 
-                {/* Waveform Card */}
-                <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 shadow-xl relative min-h-[200px]">
-                    {error && (
-                        <div className="mb-4 p-4 bg-red-500/10 border border-red-500/50 rounded-lg flex items-start gap-3 text-red-200 text-sm">
-                            <Info size={18} className="shrink-0 mt-0.5" />
-                            <p>{error}</p>
-                        </div>
-                    )}
+                {/* THEORY TAB */}
+                {activeTab === 'theory' && topicId && (
+                    <TheoryContent topicId={topicId} />
+                )}
 
-                    {!audioUrl && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 z-10 bg-slate-800/90 rounded-xl">
-                            <Music size={48} className="mb-4 text-slate-600" />
-                            <p className="text-lg font-medium">No hay audio cargado</p>
-                            <p className="text-sm text-slate-500 mb-6">Sube un archivo MP3 o WAV para comenzar a analizar</p>
-                            <label className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer transition-colors text-white font-medium shadow-lg shadow-blue-500/20">
-                                <FileAudio size={20} />
-                                <span>Seleccionar Archivo</span>
-                                <input type="file" className="hidden" accept="audio/*" onChange={handleFileUpload} />
-                            </label>
-                        </div>
-                    )}
+                {activeTab === 'theory' && !topicId && (
+                    <div className="bg-slate-800/50 rounded-xl p-8 border border-slate-700 text-center">
+                        <BookOpen size={48} className="mx-auto mb-4 text-slate-600" />
+                        <p className="text-slate-400">Selecciona un tema del Dashboard para ver su contenido teórico.</p>
+                    </div>
+                )}
 
-                    <div ref={waveformRef} className="mb-6 min-h-[128px]" />
+                {/* QUIZ TAB */}
+                {activeTab === 'quiz' && topicId && (
+                    <Quiz topicId={topicId} />
+                )}
 
-                    <div className={`flex flex-col sm:flex-row items-center justify-between gap-6 transition-opacity duration-300 ${!audioUrl ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={togglePlay}
-                                className="w-14 h-14 flex items-center justify-center bg-blue-500 hover:bg-blue-400 rounded-full transition-all hover:scale-105 active:scale-95 shadow-lg shadow-blue-500/20"
-                            >
-                                {isPlaying ? <Pause fill="white" size={24} /> : <Play fill="white" size={24} className="ml-1" />}
-                            </button>
+                {activeTab === 'quiz' && !topicId && (
+                    <div className="bg-slate-800/50 rounded-xl p-8 border border-slate-700 text-center">
+                        <ClipboardCheck size={48} className="mx-auto mb-4 text-slate-600" />
+                        <p className="text-slate-400">Selecciona un tema del Dashboard para acceder a su cuestionario.</p>
+                    </div>
+                )}
 
-                            <div className="text-slate-300 font-mono text-xl tabular-nums">
-                                {formatTime(currentTime)} <span className="text-slate-600">/</span> {formatTime(duration)}
+                {/* TUTOR IA TAB */}
+                {activeTab === 'tutor' && (
+                    <AiTutor topicId={topicId} />
+                )}
+
+                {/* ANALYSIS TAB */}
+                {activeTab === 'analysis' && (
+                    <>
+                        {/* Waveform Card */}
+                        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 shadow-xl relative min-h-[200px]">
+                            {error && (
+                                <div className="mb-4 p-4 bg-red-500/10 border border-red-500/50 rounded-lg flex items-start gap-3 text-red-200 text-sm">
+                                    <Info size={18} className="shrink-0 mt-0.5" />
+                                    <p>{error}</p>
+                                </div>
+                            )}
+
+                            {!audioUrl && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 z-10 bg-slate-800/90 rounded-xl">
+                                    <Music size={48} className="mb-4 text-slate-600" />
+                                    <p className="text-lg font-medium">No hay audio cargado</p>
+                                    <p className="text-sm text-slate-500 mb-6">Sube un archivo MP3 o WAV para comenzar a analizar</p>
+                                    <label className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg cursor-pointer transition-colors text-white font-medium shadow-lg shadow-blue-500/20">
+                                        <FileAudio size={20} />
+                                        <span>Seleccionar Archivo</span>
+                                        <input type="file" className="hidden" accept="audio/*" onChange={handleFileUpload} />
+                                    </label>
+                                </div>
+                            )}
+
+                            <div ref={waveformRef} className="mb-6 min-h-[128px]" />
+
+                            <div className={`flex flex-col sm:flex-row items-center justify-between gap-6 transition-opacity duration-300 ${!audioUrl ? 'opacity-20 pointer-events-none' : 'opacity-100'}`}>
+                                <div className="flex items-center gap-4">
+                                    <button
+                                        onClick={togglePlay}
+                                        className="w-14 h-14 flex items-center justify-center bg-blue-500 hover:bg-blue-400 rounded-full transition-all hover:scale-105 active:scale-95 shadow-lg shadow-blue-500/20"
+                                    >
+                                        {isPlaying ? <Pause fill="white" size={24} /> : <Play fill="white" size={24} className="ml-1" />}
+                                    </button>
+
+                                    <div className="text-slate-300 font-mono text-xl tabular-nums">
+                                        {formatTime(currentTime)} <span className="text-slate-600">/</span> {formatTime(duration)}
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 text-slate-400 bg-slate-900/50 px-4 py-2 rounded-lg border border-slate-700/50">
+                                    <Info size={16} />
+                                    <span className="text-xs">Arrastra y redimensiona las regiones creadas</span>
+                                </div>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2 text-slate-400 bg-slate-900/50 px-4 py-2 rounded-lg border border-slate-700/50">
-                            <Info size={16} />
-                            <span className="text-xs">Arrastra y redimensiona las regiones creadas</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Analysis Toolbar */}
+                {/* Analysis Toolbar - Now Categorized */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 space-y-4">
                         <h2 className="text-lg font-semibold flex items-center gap-2">
                             <span className="w-1 h-6 bg-blue-500 rounded-full"></span>
                             Herramientas de Análisis
+                            {topicId && (
+                                <span className="text-xs text-slate-400 font-normal ml-2">
+                                    (filtrado para: {topicId})
+                                </span>
+                            )}
                         </h2>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                            {Object.entries(ANALYSIS_SECTIONS).map(([key, section]) => (
-                                <button
-                                    key={key}
-                                    onClick={() => addAnalysisRegion(key)}
-                                    className={`py-3 px-4 rounded-lg text-sm font-semibold transition-all transform hover:-translate-y-0.5 active:translate-y-0 shadow-sm ${section.tailwind}`}
-                                >
-                                    {section.label}
-                                </button>
-                            ))}
+                        <div className="max-h-[400px] overflow-y-auto pr-2">
+                            {renderCategorizedButtons()}
                         </div>
                     </div>
 
@@ -282,6 +442,8 @@ const AnalysisStudio: React.FC = () => {
                         </div>
                     </div>
                 </div>
+                    </>
+                )}
             </main>
         </div>
     );
